@@ -1,16 +1,21 @@
 import streamlit as st
+import re
+from bs4 import BeautifulSoup
+import io
 
-# --- 1. 비밀번호 설정 (원하는 비밀번호로 수정하세요) ---
+# --- [1. 보안 및 UI 설정] ---
+st.set_page_config(page_title="OMC2 CMC2 신텍스 생성", page_icon="📝")
+
+# 비밀번호 설정 (원하시는 것으로 수정하세요)
 PASSWORD = "1012" 
 
 def check_password():
-    """비밀번호가 맞는지 확인하는 함수"""
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
 
     if not st.session_state["password_correct"]:
-        st.title("🔒 접근 제한")
-        user_password = st.text_input("비밀번호를 입력해야 도구를 사용할 수 있습니다.", type="password")
+        st.title("🔒 OMC2 CMC2 신텍스 생성기")
+        user_password = st.text_input("비밀번호를 입력해 주세요.", type="password")
         if st.button("접속하기"):
             if user_password == PASSWORD:
                 st.session_state["password_correct"] = True
@@ -20,17 +25,7 @@ def check_password():
         return False
     return True
 
-# --- 2. 메인 실행부 ---
-if check_password():
-    # 여기서부터 기존 코드가 시작됩니다.
-    st.title("📝 ISAS5 신텍스 생성기")
-    # ... (기존의 process_html_content 함수와 UI 코드들)
-import streamlit as st
-import re
-from bs4 import BeautifulSoup
-import io
-
-# --- [기존 로직 함수들] ---
+# --- [2. 데이터 처리 핵심 로직] ---
 def clean_text_fully(text):
     if not text: return ""
     cleaned = text.replace('\xa0', ' ').replace('&nbsp;', ' ')
@@ -62,11 +57,10 @@ def get_logic_area_text(node, stop_node):
         curr = curr.next_sibling
     return clean_text_fully("".join(txts))
 
-def process_html_content(content, q_map_option=True):
+def process_html_content(content):
     soup = BeautifulSoup(content, 'html.parser')
     q_map, page_logic = {}, {}
     
-    # 1. 사이드바 매핑
     sidebar = soup.find('ul', id='syncTreeview')
     if sidebar:
         for li in sidebar.find_all('li'):
@@ -78,13 +72,11 @@ def process_html_content(content, q_map_option=True):
                 m = re.search(r'Q(\d+)', q_span.get_text())
                 if m: q_map[tid] = f"Q{m.group(1)}"
 
-    # 2. 로직 레이어 수집
     for layer in soup.find_all('fieldset', class_='logicLayer'):
         for item in layer.find_all(['dd', 'div', 'p', 'dt']):
             match = re.search(r'Logic:\s*(.*?)\s*=>\s*Page:\s*(\d+)', item.get_text(), flags=re.I)
             if match: page_logic[match.group(2)] = clean_logic_text(match.group(1))
 
-    # 3. 문항 처리
     final_syntax_omc, final_syntax_cmc = [], []
     items = soup.find_all('div', class_='ISAS5')
     processed_q_ids = set()
@@ -111,14 +103,12 @@ def process_html_content(content, q_map_option=True):
         rk_in = q_div.find_all('input', casetype=re.compile(r'RK', re.I))
         textareas = q_div.find_all('textarea')
 
-        # [0순위: 상기도 결합]
         next_q_marker = items[i+1] if i+1 < len(items) else None
         current_logic_area = get_logic_area_text(q_div, next_q_marker)
 
         if "최초상기" in current_logic_area:
             combined_vars = []
-            f_count = max(1, len(ts_in))
-            for k in range(f_count): combined_vars.append(f"{q_reordered}_{k+1}")
+            for k in range(max(1, len(ts_in))): combined_vars.append(f"{q_reordered}_{k+1}")
             j = i + 1
             while j < len(items):
                 target_q = items[j]
@@ -134,25 +124,22 @@ def process_html_content(content, q_map_option=True):
             final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={' '.join(combined_vars)}.")
             continue
 
-        # 오픈 응답 없는 문항 제외
         if not ts_in and not textareas: continue
 
-        # 일반 단답형 (칸 1개 제외)
         if ts_in and not rk_in and not textareas and q_type not in ["311", "221", "121"]:
             if len(ts_in) >= 2:
                 v_list = " ".join([f"{q_reordered}_{k+1}" for k in range(len(ts_in))])
                 final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={v_list}.")
             continue
 
-        # 기타 타입 (오픈응답 있을 때만)
-        if rk_in: # 순위형
+        if rk_in:
             v_list = " ".join([f"{q_reordered}_{k+1}" for k in range(len(rk_in))])
             final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={v_list}.")
-        elif q_type in ["311", "221"] or len(textareas) > 0: # 서술형
+        elif q_type in ["311", "221"] or len(textareas) > 0:
             num = len(textareas) or len(ts_in)
             for f_idx in range(1, num + 1):
                 final_syntax_omc.append(f"*{q_reordered}({orig_name}) - {f_idx}번.\n!OMC2 {base_str}V={q_reordered}_{f_idx}_1 {q_reordered}_{f_idx}_2 {q_reordered}_{f_idx}_3.")
-        elif q_type == "121" and ts_in: # 모두선택형 주관식
+        elif q_type == "121" and ts_in:
             ma_val = ""
             for ts in ts_in:
                 parent = ts.find_parent('label')
@@ -167,39 +154,34 @@ def process_html_content(content, q_map_option=True):
         res += "\n\n\n*=== [CMC2 SYNTAX] ===.\n\n" + "\n\n".join(final_syntax_cmc)
     return res
 
-# --- [Streamlit 웹 UI 영역] ---
-st.set_page_config(page_title="ISAS5 HTML to SPSS Syntax", page_icon="📝")
+# --- [3. 메인 실행부] ---
+if check_password():
+    st.title("📝 OMC2 CMC2 신텍스 생성")
+    st.info("HTML 파일을 업로드하고 버튼을 누르면 오픈 응답 신텍스가 생성됩니다.")
 
-st.title("📝 ISAS5 신텍스 생성기")
-st.markdown("HTML 설문 파일을 업로드하면 **오픈 응답용 SPSS 신텍스**를 즉시 생성합니다.")
+    uploaded_file = st.file_uploader("HTML 파일을 선택하세요", type=['html', 'htm'])
 
-uploaded_file = st.file_uploader("HTML 파일을 선택하세요", type=['html', 'htm'])
-
-if uploaded_file is not None:
-    # 인코딩 처리
-    bytes_data = uploaded_file.read()
-    content = None
-    for enc in ['euc-kr', 'cp949', 'utf-8-sig', 'utf-8']:
-        try:
-            content = bytes_data.decode(enc)
-            if "ISAS5" in content:
-                st.success(f"성공: {enc} 인코딩으로 파일을 읽었습니다.")
-                break
-        except: continue
-    
-    if content:
-        if st.button("신텍스 생성하기"):
-            result_text = process_html_content(content)
-            
-            st.subheader("생성된 신텍스")
-            st.code(result_text, language='text')
-            
-            # 다운로드 버튼
-            st.download_button(
-                label="결과 파일 다운로드 (.txt)",
-                data=result_text,
-                file_name=f"syntax_{uploaded_file.name.split('.')[0]}.txt",
-                mime="text/plain"
-            )
-    else:
-        st.error("파일을 읽을 수 없거나 올바른 ISAS5 HTML 파일이 아닙니다.")
+    if uploaded_file is not None:
+        bytes_data = uploaded_file.read()
+        content = None
+        for enc in ['euc-kr', 'cp949', 'utf-8-sig', 'utf-8']:
+            try:
+                content = bytes_data.decode(enc)
+                if "ISAS5" in content: break
+            except: continue
+        
+        if content:
+            if st.button("OMC2 CMC2 신텍스 생성"):
+                result_text = process_html_content(content)
+                st.divider()
+                st.subheader("결과 리포트")
+                st.code(result_text, language='text')
+                
+                st.download_button(
+                    label="신텍스 파일 다운로드 (.txt)",
+                    data=result_text,
+                    file_name=f"syntax_{uploaded_file.name.split('.')[0]}.txt",
+                    mime="text/plain"
+                )
+        else:
+            st.error("올바른 ISAS5 HTML 파일이 아니거나 인코딩이 맞지 않습니다.")
