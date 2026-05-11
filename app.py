@@ -6,8 +6,8 @@ import io
 # --- [1. 보안 및 UI 설정] ---
 st.set_page_config(page_title="OMC2 CMC2 신텍스 생성", page_icon="📝")
 
-# 비밀번호 설정
-PASSWORD = "1012" 
+# 비밀번호 설정 (원하시는 대로 수정)
+PASSWORD = "1234" 
 
 def check_password():
     if "password_correct" not in st.session_state:
@@ -25,7 +25,7 @@ def check_password():
         return False
     return True
 
-# --- [2. 데이터 처리 핵심 로직 (기존과 동일)] ---
+# --- [2. 데이터 처리 핵심 로직] ---
 def clean_text_fully(text):
     if not text: return ""
     cleaned = text.replace('\xa0', ' ').replace('&nbsp;', ' ')
@@ -33,19 +33,34 @@ def clean_text_fully(text):
 
 def clean_logic_text(logic_str):
     if not logic_str: return ""
+    # 불필요한 ID 및 Logic 태그 제거
     logic_str = re.sub(r'ID:\s*\d+,\s*Logic:', '', logic_str, flags=re.I)
+    logic_str = re.sub(r'Logic:', '', logic_str, flags=re.I)
     return " ".join(logic_str.split()).strip()
 
 def replace_vars_in_logic(logic_raw, q_map):
+    """BASE 로직 내의 변수를 재정렬된 Q번호로 치환 (MA/RK 대응)"""
     if not logic_raw: return ""
+    # 긴 ID부터 치환하여 겹침 방지
     sorted_oids = sorted(q_map.keys(), key=len, reverse=True)
+    
     def subst_func(match):
         oid, suffix, op, val = match.groups()
         rid = q_map.get(oid, oid)
-        if suffix and "RK" in suffix.upper():
+        
+        # 1. 멀티 문항(MA) 처리: Q48MA=1 -> Q48_1=1
+        if suffix and "MA" in suffix.upper() and val:
+            return f"{rid}_{val}{op}{val}"
+        
+        # 2. 순위형(RK) 처리: Q48RK1=1 -> Q48_1=1
+        elif suffix and "RK" in suffix.upper():
             rk_num = re.search(r'\d+', suffix)
             return f"{rid}_{rk_num.group() if rk_num else '1'}{op}{val}"
+        
+        # 3. 일반 문항 처리
         return f"{rid}{op}{val}"
+
+    # 정규식 패턴: (원본ID)(접미사)(연산자)(값)
     pattern = rf"({'|'.join(sorted_oids)})(SA|MA|TN|RK\d+)?(\s*[=<>!]+\s*)(\d+)?"
     return re.sub(pattern, subst_func, logic_raw, flags=re.I)
 
@@ -60,6 +75,8 @@ def get_logic_area_text(node, stop_node):
 def process_html_content(content):
     soup = BeautifulSoup(content, 'html.parser')
     q_map, page_logic = {}, {}
+    
+    # 사이드바 매핑
     sidebar = soup.find('ul', id='syncTreeview')
     if sidebar:
         for li in sidebar.find_all('li'):
@@ -70,6 +87,8 @@ def process_html_content(content):
             if q_span:
                 m = re.search(r'Q(\d+)', q_span.get_text())
                 if m: q_map[tid] = f"Q{m.group(1)}"
+
+    # 로직 레이어 수집
     for layer in soup.find_all('fieldset', class_='logicLayer'):
         for item in layer.find_all(['dd', 'div', 'p', 'dt']):
             match = re.search(r'Logic:\s*(.*?)\s*=>\s*Page:\s*(\d+)', item.get_text(), flags=re.I)
@@ -82,26 +101,35 @@ def process_html_content(content):
     for i, q_div in enumerate(items):
         orig_id = q_div.get('id', '')
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
+        
         q_reordered = q_map[orig_id]
         q_type = str(q_div.get('questtype', '')).strip()
         q_text_div = q_div.find('div', class_='survey_Q')
         q_text = q_text_div.get_text(strip=True) if q_text_div else ""
         name_match = re.search(r'^([A-Z0-9\-]+)', q_text)
         orig_name = name_match.group(1) if name_match else q_reordered
+
+        # 베이스 로직 추출 및 변환
         base_str = ""
         prev_p = q_div.find_previous('span', id=re.compile(r'^P\d+'))
         if prev_p:
             p_num = prev_p.get('id').replace('P', '')
             p_cond = page_logic.get(p_num)
-            if p_cond: base_str = f"BASE=({replace_vars_in_logic(p_cond, q_map)}) "
+            if p_cond:
+                # 여기서 replace_vars_in_logic을 호출하여 Q48_1=1 형태로 바꿈
+                base_str = f"BASE=({replace_vars_in_logic(p_cond, q_map)}) "
+
         ts_in = q_div.find_all('input', casetype=re.compile(r'TS', re.I))
         rk_in = q_div.find_all('input', casetype=re.compile(r'RK', re.I))
         textareas = q_div.find_all('textarea')
+
         next_q_marker = items[i+1] if i+1 < len(items) else None
         current_logic_area = get_logic_area_text(q_div, next_q_marker)
+
         if "최초상기" in current_logic_area:
             combined_vars = []
-            for k in range(max(1, len(ts_in))): combined_vars.append(f"{q_reordered}_{k+1}")
+            f_count = max(1, len(ts_in))
+            for k in range(f_count): combined_vars.append(f"{q_reordered}_{k+1}")
             j = i + 1
             while j < len(items):
                 target_q = items[j]; nn_item = items[j+1] if j+1 < len(items) else None
@@ -115,12 +143,15 @@ def process_html_content(content):
                 else: break
             final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={' '.join(combined_vars)}.")
             continue
+
         if not ts_in and not textareas: continue
+
         if ts_in and not rk_in and not textareas and q_type not in ["311", "221", "121"]:
             if len(ts_in) >= 2:
                 v_list = " ".join([f"{q_reordered}_{k+1}" for k in range(len(ts_in))])
                 final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={v_list}.")
             continue
+
         if rk_in:
             v_list = " ".join([f"{q_reordered}_{k+1}" for k in range(len(rk_in))])
             final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={v_list}.")
@@ -143,18 +174,16 @@ def process_html_content(content):
         res += "\n\n\n*=== [CMC2 SYNTAX] ===.\n\n" + "\n\n".join(final_syntax_cmc)
     return res
 
-# --- [3. 메인 실행부 (자동 실행 설정)] ---
+# --- [3. 메인 실행부] ---
 if check_password():
     st.title("📝 OMC2 CMC2 신텍스 생성")
     st.info("HTML 파일을 업로드하면 자동으로 신텍스가 생성됩니다.")
 
     uploaded_file = st.file_uploader("HTML 파일을 선택하세요", type=['html', 'htm'])
 
-    # 파일이 업로드되었는지 확인
     if uploaded_file is not None:
         bytes_data = uploaded_file.read()
         content = None
-        # 인코딩 시도
         for enc in ['euc-kr', 'cp949', 'utf-8-sig', 'utf-8']:
             try:
                 content = bytes_data.decode(enc)
@@ -162,17 +191,13 @@ if check_password():
             except: continue
         
         if content:
-            # --- 버튼 클릭 없이 바로 실행 ---
             with st.spinner('신텍스를 생성 중입니다...'):
                 result_text = process_html_content(content)
             
             st.divider()
             st.subheader("✅ 생성 완료")
-            
-            # 1. 결과 코드 표시
             st.code(result_text, language='text')
             
-            # 2. 바로 다운로드 버튼 표시
             st.download_button(
                 label="📄 신텍스 파일 다운로드 (.txt)",
                 data=result_text,
@@ -180,4 +205,4 @@ if check_password():
                 mime="text/plain"
             )
         else:
-            st.error("올바른 ISAS5 HTML 파일이 아니거나 인코딩을 확인할 수 없습니다.")
+            st.error("올바른 ISAS5 HTML 파일이 아닙니다.")
