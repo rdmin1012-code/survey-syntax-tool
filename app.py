@@ -1,4 +1,31 @@
 import streamlit as st
+
+# --- 1. 비밀번호 설정 (원하는 비밀번호로 수정하세요) ---
+PASSWORD = "mysecret123" 
+
+def check_password():
+    """비밀번호가 맞는지 확인하는 함수"""
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if not st.session_state["password_correct"]:
+        st.title("🔒 접근 제한")
+        user_password = st.text_input("비밀번호를 입력해야 도구를 사용할 수 있습니다.", type="password")
+        if st.button("접속하기"):
+            if user_password == PASSWORD:
+                st.session_state["password_correct"] = True
+                st.rerun()
+            else:
+                st.error("❌ 비밀번호가 틀렸습니다.")
+        return False
+    return True
+
+# --- 2. 메인 실행부 ---
+if check_password():
+    # 여기서부터 기존 코드가 시작됩니다.
+    st.title("📝 ISAS5 신텍스 생성기")
+    # ... (기존의 process_html_content 함수와 UI 코드들)
+import streamlit as st
 import re
 from bs4 import BeautifulSoup
 import io
