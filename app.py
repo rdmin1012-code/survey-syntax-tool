@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- 1. 비밀번호 설정 (원하는 비밀번호로 수정하세요) ---
-PASSWORD = "mysecret123" 
+PASSWORD = "1012" 
 
 def check_password():
     """비밀번호가 맞는지 확인하는 함수"""
