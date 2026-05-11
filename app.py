@@ -7,7 +7,7 @@ import io
 st.set_page_config(page_title="OMC2 CMC2 신텍스 생성", page_icon="📝")
 
 # 비밀번호 설정
-PASSWORD = "1234" 
+PASSWORD = "1012" 
 
 def check_password():
     if "password_correct" not in st.session_state:
