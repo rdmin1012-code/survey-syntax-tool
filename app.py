@@ -70,17 +70,14 @@ def process_html_content(content):
     q_map, page_logic = {}, {}
     
     # -------------------------------------------------------------
-    # [초정밀 박스 격리 필터 + 안전 잠금장치]
+    # [문자열 기반 핀포인트 추출] 사용자가 제시한 특정 HTML 문자열 패턴에서만 Q번호를 추출
     privacy_q_digits = set()
-    for tag in soup.find_all(['dt', 'span', 'b', 'strong', 'p', 'div']):
-        if "개인정보보호" in tag.get_text():
-            parent = tag.find_parent(['div', 'fieldset'])
-            if parent:
-                # 안전장치: 이 부모 박스 안에 실제 문항(ISAS5)이 없다면 (즉, 진짜 문항제어 박스라면)
-                if not parent.find('div', class_='ISAS5'):
-                    # 박스 안의 모든 텍스트에서 Q번호(예: Q16)를 추출하여 숫자로 저장
-                    for qnum in re.findall(r'[qQ](\d+)', parent.get_text()):
-                        privacy_q_digits.add(str(int(qnum)))
+    # "개인정보보호문항 설정 정보"부터 "</dd>"까지의 블록을 찾음 (띄어쓰기, 줄바꿈 무시)
+    privacy_blocks = re.findall(r'<dt>\s*개인정보보호문항\s*설정\s*정보\s*</dt>.*?</dd>', content, re.DOTALL | re.IGNORECASE)
+    for block in privacy_blocks:
+        # 블록 내에서 Q+숫자 형태를 모두 찾아 숫자만 추출 (예: Q16TS1 -> 16)
+        for qnum in re.findall(r'[qQ](\d+)', block):
+            privacy_q_digits.add(str(int(qnum)))
     # -------------------------------------------------------------
     
     sidebar = soup.find('ul', id='syncTreeview')
