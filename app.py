@@ -70,14 +70,15 @@ def process_html_content(content):
     q_map, page_logic = {}, {}
     
     # -------------------------------------------------------------
-    # [핵심 보완] '개인정보보호문항'이 적힌 dt 태그를 찾고, 그 부모(div) 안에서만 Q숫자 추출
+    # [사용자 맞춤 타겟팅] <dt>개인정보보호문항...</dt> 바로 다음에 오는 <dd> 안에서만 Q 추출
     privacy_q_digits = set()
     for dt in soup.find_all('dt'):
-        if "개인정보보호" in dt.get_text():
-            parent_div = dt.find_parent('div')
-            if parent_div:
-                # 추출된 블록 내의 Q16TS1 등에서 '16'만 확실하게 뽑아냄
-                for qnum in re.findall(r'[qQ](\d+)', parent_div.get_text()):
+        if "개인정보보호문항" in dt.get_text():
+            # dt 태그를 기준으로, HTML 문서상 바로 다음에 등장하는 첫 번째 dd 태그를 찾음
+            target_dd = dt.find_next('dd')
+            if target_dd:
+                # 찾아낸 <dd> 안의 내용(예: Q16TS1)에서 숫자 '16'만 추출하여 저장
+                for qnum in re.findall(r'[qQ](\d+)', target_dd.get_text()):
                     privacy_q_digits.add(str(int(qnum)))
     # -------------------------------------------------------------
     
