@@ -39,31 +39,16 @@ def clean_logic_text(logic_str):
 def replace_vars_in_logic(logic_raw, q_map):
     if not logic_raw: return ""
     sorted_oids = sorted(q_map.keys(), key=len, reverse=True)
-    
     def subst_func(match):
         oid, suffix, op, val = match.groups()
-        # q_map에 있으면 변환하고, 이미 Q48 형태라면 그대로 유지
         rid = q_map.get(oid, oid)
-        
-        if suffix:
-            suffix_upper = suffix.upper()
-            # 1. 멀티 문항(MA) 처리: Q48MA=1 -> Q48_1=1
-            if "MA" in suffix_upper and val:
-                return f"{rid}_{val}{op}{val}"
-            # 2. 순위형(RK) 처리: Q48RK1=1 -> Q48_1=1
-            elif "RK" in suffix_upper:
-                rk_num = re.search(r'\d+', suffix_upper)
-                return f"{rid}_{rk_num.group() if rk_num else '1'}{op}{val}"
-        
-        # 3. SA, TL, TN 등 그 외 모든 접미사는 기호/값을 유지한 채 접미사만 통과(삭제)
+        if suffix and "MA" in suffix.upper() and val:
+            return f"{rid}_{val}{op}{val}"
+        elif suffix and "RK" in suffix.upper():
+            rk_num = re.search(r'\d+', suffix)
+            return f"{rid}_{rk_num.group() if rk_num else '1'}{op}{val}"
         return f"{rid}{op}{val}"
-        
-    # 시스템 ID 패턴과 기존 Q\d+ 패턴을 모두 포괄하며, 뒤에 붙은 모든 대문자/숫자 접미사를 캡처
-    if sorted_oids:
-        pattern = rf"({'|'.join(sorted_oids)}|Q\d+)([A-Z0-9_]*?)(\s*[=<>!]+\s*)(\d+)?"
-    else:
-        pattern = rf"(Q\d+)([A-Z0-9_]*?)(\s*[=<>!]+\s*)(\d+)?"
-        
+    pattern = rf"({'|'.join(sorted_oids)})(SA|MA|TN|RK\d+)?(\s*[=<>!]+\s*)(\d+)?"
     return re.sub(pattern, subst_func, logic_raw, flags=re.I)
 
 def get_logic_area_text(node, stop_node):
@@ -148,12 +133,14 @@ def process_html_content(content):
             final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={v_list}.")
             continue
 
-        # --- [서술형 문항 개수별 변수명 로직] ---
+        # --- [서술형(311, 221) 문항 개수별 변수명 로직 수정] ---
         if q_type in ["311", "221"] or len(textareas) > 0:
             num = len(textareas) or len(ts_in)
             if num == 1:
+                # 서술형 칸이 하나인 경우 (Q120_1 Q120_2 Q120_3)
                 final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={q_reordered}_1 {q_reordered}_2 {q_reordered}_3.")
             else:
+                # 서술형 칸이 여러 개인 경우 (Q120_1_1 Q120_1_2 Q120_1_3...)
                 for f_idx in range(1, num + 1):
                     final_syntax_omc.append(f"*{q_reordered}({orig_name}) - {f_idx}번.\n!OMC2 {base_str}V={q_reordered}_{f_idx}_1 {q_reordered}_{f_idx}_2 {q_reordered}_{f_idx}_3.")
             continue
