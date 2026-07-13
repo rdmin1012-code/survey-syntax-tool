@@ -14,7 +14,7 @@ def check_password():
         st.session_state["password_correct"] = False
     if not st.session_state["password_correct"]:
         st.title("🔒 OMC2 CMC2 신텍스 생성기")
-        user_password = st.text_input("비密번호를 입력해 주세요.", type="password")
+        user_password = st.text_input("비밀번호를 입력해 주세요.", type="password")
         if st.button("접속하기"):
             if user_password == PASSWORD:
                 st.session_state["password_correct"] = True
@@ -70,15 +70,25 @@ def process_html_content(content):
     q_map, page_logic = {}, {}
     
     # -------------------------------------------------------------
-    # [정밀 필터 변경] 대형 컨테이너를 배제하고 오직 문항제어 내 dt 태그 주변만 정밀 타겟 스캔
+    # [현미경 핀포인트 필터] 텍스트 노드를 직격 타겟팅하여 타 문항(TL 등) 오인 차단
     privacy_q_digits = set()
-    for dt in soup.find_all('dt'):
-        if "개인정보보호" in dt.get_text():
-            container = dt.find_parent(['div', 'fieldset'])
-            # 실제 질문 문항 블록(ISAS5)이 아닌 제어 블록인 경우에만 번호 추출
-            if container and 'ISAS5' not in container.get('class', []):
-                for qnum in re.findall(r'[qQ](\d+)', container.get_text()):
-                    privacy_q_digits.add(str(int(qnum)))
+    target_node = None
+    try:
+        target_node = soup.find(string=re.compile("개인정보보호"))
+    except:
+        pass
+    if not target_node:
+        try:
+            target_node = soup.find(text=re.compile("개인정보보호"))
+        except:
+            pass
+            
+    if target_node:
+        # 텍스트를 담은 가장 가까운 최소 단위의 박스(div 또는 fieldset)만 특정
+        control_box = target_node.find_parent(['div', 'fieldset'])
+        if control_box:
+            for qnum in re.findall(r'[qQ](\d+)', control_box.get_text()):
+                privacy_q_digits.add(str(int(qnum)))
     # -------------------------------------------------------------
     
     sidebar = soup.find('ul', id='syncTreeview')
@@ -106,7 +116,7 @@ def process_html_content(content):
         q_reordered = q_map[orig_id]
         
         # -------------------------------------------------------------
-        # [정밀 필터 적용] 사전에 추출된 개인정보 대상 문항 번호와 완벽히 일치할 때만 스킵
+        # [정밀 필터 적용] 핀포인트로 추출된 개인정보 문항 번호와 일치할 때만 정확히 스킵
         q_match = re.search(r'\d+', q_reordered)
         if q_match and str(int(q_match.group())) in privacy_q_digits:
             continue
@@ -161,45 +171,4 @@ def process_html_content(content):
             continue
 
         # --- [서술형(311, 221) 문항 개수별 변수명 로직 수정] ---
-        if q_type in ["311", "221"] or len(textareas) > 0:
-            num = len(textareas) or len(ts_in)
-            if num == 1:
-                final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={q_reordered}_1 {q_reordered}_2 {q_reordered}_3.")
-            else:
-                for f_idx in range(1, num + 1):
-                    final_syntax_omc.append(f"*{q_reordered}({orig_name}) - {f_idx}번.\n!OMC2 {base_str}V={q_reordered}_{f_idx}_1 {q_reordered}_{f_idx}_2 {q_reordered}_{f_idx}_3.")
-            continue
-
-        if q_type == "121" and ts_in:
-            ma_val = ""
-            for ts in ts_in:
-                parent = ts.find_parent('label'); linked = parent.find('input', casetype=re.compile(r'MA', re.I)) if parent else None
-                if linked: ma_val = linked.get('value', '')
-            if ma_val:
-                v_ma = " ".join([f"{q_reordered}_{m.get('value')}" for m in q_div.find_all('input', casetype=re.compile(r'MA', re.I))])
-                final_syntax_cmc.append(f"*{q_reordered}({orig_name}).\n!CMC2 ETC={q_reordered}_{ma_val} V={v_ma}.")
-
-    res = "*=== [OMC2 SYNTAX] ===.\n\n" + "\n\n".join(final_syntax_omc)
-    if final_syntax_cmc: res += "\n\n\n*=== [CMC2 SYNTAX] ===.\n\n" + "\n\n".join(final_syntax_cmc)
-    return res
-
-# --- [3. 메인 실행부] ---
-if check_password():
-    st.title("📝 OMC2 CMC2 신텍스 생성")
-    uploaded_file = st.file_uploader("HTML 파일을 선택하세요", type=['html', 'htm'])
-    if uploaded_file is not None:
-        bytes_data = uploaded_file.read()
-        content = None
-        for enc in ['euc-kr', 'cp949', 'utf-8-sig', 'utf-8']:
-            try:
-                content = bytes_data.decode(enc)
-                if "ISAS5" in content: break
-            except: continue
-        if content:
-            with st.spinner('신텍스를 생성 중입니다...'):
-                result_text = process_html_content(content)
-            st.divider()
-            st.subheader("✅ 생성 완료")
-            st.code(result_text, language='text')
-            st.download_button(label="📄 신텍스 파일 다운로드 (.txt)", data=result_text, file_name=f"syntax_{uploaded_file.name.split('.')[0]}.txt", mime="text/plain")
-        else: st.error("올바른 ISAS5 HTML 파일이 아닙니다.")
+        if q_type in
