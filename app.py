@@ -68,18 +68,6 @@ def get_logic_area_text(node, stop_node):
 def process_html_content(content):
     soup = BeautifulSoup(content, 'html.parser')
     q_map, page_logic = {}, {}
-    
-    # -------------------------------------------------------------
-    # [문자열 기반 핀포인트 추출] 사용자가 제시한 특정 HTML 문자열 패턴에서만 Q번호를 추출
-    privacy_q_digits = set()
-    # "개인정보보호문항 설정 정보"부터 "</dd>"까지의 블록을 찾음 (띄어쓰기, 줄바꿈 무시)
-    privacy_blocks = re.findall(r'<dt>\s*개인정보보호문항\s*설정\s*정보\s*</dt>.*?</dd>', content, re.DOTALL | re.IGNORECASE)
-    for block in privacy_blocks:
-        # 블록 내에서 Q+숫자 형태를 모두 찾아 숫자만 추출 (예: Q16TS1 -> 16)
-        for qnum in re.findall(r'[qQ](\d+)', block):
-            privacy_q_digits.add(str(int(qnum)))
-    # -------------------------------------------------------------
-    
     sidebar = soup.find('ul', id='syncTreeview')
     if sidebar:
         for li in sidebar.find_all('li'):
@@ -103,14 +91,6 @@ def process_html_content(content):
         orig_id = q_div.get('id', '')
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
         q_reordered = q_map[orig_id]
-        
-        # -------------------------------------------------------------
-        # [정밀 필터 적용] 사전에 추출된 개인정보 문항 번호와 완벽히 일치할 때만 스킵
-        q_match = re.search(r'\d+', q_reordered)
-        if q_match and str(int(q_match.group())) in privacy_q_digits:
-            continue
-        # -------------------------------------------------------------
-        
         q_type = str(q_div.get('questtype', '')).strip()
         q_text_div = q_div.find('div', class_='survey_Q')
         q_text = q_text_div.get_text(strip=True) if q_text_div else ""
@@ -163,8 +143,10 @@ def process_html_content(content):
         if q_type in ["311", "221"] or len(textareas) > 0:
             num = len(textareas) or len(ts_in)
             if num == 1:
+                # 서술형 칸이 하나인 경우 (Q120_1 Q120_2 Q120_3)
                 final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={q_reordered}_1 {q_reordered}_2 {q_reordered}_3.")
             else:
+                # 서술형 칸이 여러 개인 경우 (Q120_1_1 Q120_1_2 Q120_1_3...)
                 for f_idx in range(1, num + 1):
                     final_syntax_omc.append(f"*{q_reordered}({orig_name}) - {f_idx}번.\n!OMC2 {base_str}V={q_reordered}_{f_idx}_1 {q_reordered}_{f_idx}_2 {q_reordered}_{f_idx}_3.")
             continue
