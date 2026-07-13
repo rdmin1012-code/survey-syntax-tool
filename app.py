@@ -14,7 +14,7 @@ def check_password():
         st.session_state["password_correct"] = False
     if not st.session_state["password_correct"]:
         st.title("🔒 OMC2 CMC2 신텍스 생성기")
-        user_password = st.text_input("비밀번호를 입력해 주세요.", type="password")
+        user_password = st.text_input("비密번호를 입력해 주세요.", type="password")
         if st.button("접속하기"):
             if user_password == PASSWORD:
                 st.session_state["password_correct"] = True
@@ -51,6 +51,7 @@ def replace_vars_in_logic(logic_raw, q_map):
                 return f"{rid}_{rk_num.group()}{op}{val}"
         return f"{rid}{op}{val}"
     
+    # SA, TL, TS, TN, 숫자가 없는 RK 형식을 정확히 캡처하여 제외하기 위한 패턴 확장
     targets = '|'.join(sorted_oids)
     id_pattern = f"({targets}|Q\d+)" if targets else "(Q\d+)"
     pattern = id_pattern + r"(SA|MA|TN|TL|TS|RK\d*)?(\s*[=<>!]+\s*)(\d+)?"
@@ -69,14 +70,15 @@ def process_html_content(content):
     q_map, page_logic = {}, {}
     
     # -------------------------------------------------------------
-    # [신규 규칙] 모든 컨테이너 요소를 뒤져서 개인정보 대상 Q번호 추출 (숫자 완벽 정규화)
+    # [정밀 필터 변경] 대형 컨테이너를 배제하고 오직 문항제어 내 dt 태그 주변만 정밀 타겟 스캔
     privacy_q_digits = set()
-    for element in soup.find_all(['div', 'fieldset', 'dt', 'dd', 'tr', 'td', 'p']):
-        elem_text_compact = re.sub(r'\s+', '', element.get_text())
-        if "개인정보보호" in elem_text_compact:
-            # 대소문자 구분 없이 Q/q 뒤의 숫자를 모두 추출하여 순수 정수형태 문자열로 저장 (ex: 016 -> 16)
-            for qnum in re.findall(r'[qQ](\d+)', element.get_text()):
-                privacy_q_digits.add(str(int(qnum)))
+    for dt in soup.find_all('dt'):
+        if "개인정보보호" in dt.get_text():
+            container = dt.find_parent(['div', 'fieldset'])
+            # 실제 질문 문항 블록(ISAS5)이 아닌 제어 블록인 경우에만 번호 추출
+            if container and 'ISAS5' not in container.get('class', []):
+                for qnum in re.findall(r'[qQ](\d+)', container.get_text()):
+                    privacy_q_digits.add(str(int(qnum)))
     # -------------------------------------------------------------
     
     sidebar = soup.find('ul', id='syncTreeview')
@@ -89,7 +91,6 @@ def process_html_content(content):
             if q_span:
                 m = re.search(r'Q(\d+)', q_span.get_text())
                 if m: q_map[tid] = f"Q{m.group(1)}"
-                
     for layer in soup.find_all('fieldset', class_='logicLayer'):
         for item in layer.find_all(['dd', 'div', 'p', 'dt']):
             match = re.search(r'Logic:\s*(.*?)\s*=>\s*Page:\s*(\d+)', item.get_text(), flags=re.I)
@@ -102,16 +103,15 @@ def process_html_content(content):
     for i, q_div in enumerate(items):
         orig_id = q_div.get('id', '')
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
-        
         q_reordered = q_map[orig_id]
         
         # -------------------------------------------------------------
-        # [정밀 필터 반영] 자릿수 차이(Q16 vs Q016)를 파괴하고 오직 순수 숫자로만 비교하여 패스
+        # [정밀 필터 적용] 사전에 추출된 개인정보 대상 문항 번호와 완벽히 일치할 때만 스킵
         q_match = re.search(r'\d+', q_reordered)
         if q_match and str(int(q_match.group())) in privacy_q_digits:
             continue
         # -------------------------------------------------------------
-
+        
         q_type = str(q_div.get('questtype', '')).strip()
         q_text_div = q_div.find('div', class_='survey_Q')
         q_text = q_text_div.get_text(strip=True) if q_text_div else ""
@@ -139,11 +139,6 @@ def process_html_content(content):
                 if "비보조상기" in get_logic_area_text(target_q, nn_item):
                     t_rid = q_map.get(target_q.get('id', ''))
                     if t_rid:
-                        # 최초/비보조 상기 연동 루프 내에서도 개인정보 문항은 강제 제외
-                        t_match = re.search(r'\d+', t_rid)
-                        if t_match and str(int(t_match.group())) in privacy_q_digits:
-                            j += 1
-                            continue
                         ts_next = target_q.find_all('input', casetype=re.compile(r'TS', re.I))
                         for k in range(max(1, len(ts_next))): combined_vars.append(f"{t_rid}_{k+1}")
                         processed_q_ids.add(target_q.get('id'))
@@ -165,7 +160,7 @@ def process_html_content(content):
             final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={v_list}.")
             continue
 
-        # --- [서술형(311, 221) 문항 개수별 변수명 로직] ---
+        # --- [서술형(311, 221) 문항 개수별 변수명 로직 수정] ---
         if q_type in ["311", "221"] or len(textareas) > 0:
             num = len(textareas) or len(ts_in)
             if num == 1:
