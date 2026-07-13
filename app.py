@@ -73,7 +73,7 @@ def process_html_content(content):
     # [핵심 보완] '개인정보보호문항'이 적힌 dt 태그를 찾고, 그 부모(div) 안에서만 Q숫자 추출
     privacy_q_digits = set()
     for dt in soup.find_all('dt'):
-        if "개인정보보호문항" in dt.get_text():
+        if "개인정보보호" in dt.get_text():
             parent_div = dt.find_parent('div')
             if parent_div:
                 # 추출된 블록 내의 Q16TS1 등에서 '16'만 확실하게 뽑아냄
