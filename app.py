@@ -51,7 +51,6 @@ def replace_vars_in_logic(logic_raw, q_map):
                 return f"{rid}_{rk_num.group()}{op}{val}"
         return f"{rid}{op}{val}"
     
-    # SA, TL, TS, TN, 숫자가 없는 RK 형식을 정확히 캡처하여 제외하기 위한 패턴 확장
     targets = '|'.join(sorted_oids)
     id_pattern = f"({targets}|Q\d+)" if targets else "(Q\d+)"
     pattern = id_pattern + r"(SA|MA|TN|TL|TS|RK\d*)?(\s*[=<>!]+\s*)(\d+)?"
@@ -90,6 +89,13 @@ def process_html_content(content):
     for i, q_div in enumerate(items):
         orig_id = q_div.get('id', '')
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
+        
+        # -------------------------------------------------------------
+        # [신규 예외 처리] 문항 내에 해당 지시 텍스트가 포착되면 통째로 생성 패스
+        if "개인정보보호문항 설정 정보" in q_div.get_text():
+            continue
+        # -------------------------------------------------------------
+
         q_reordered = q_map[orig_id]
         q_type = str(q_div.get('questtype', '')).strip()
         q_text_div = q_div.find('div', class_='survey_Q')
@@ -143,10 +149,8 @@ def process_html_content(content):
         if q_type in ["311", "221"] or len(textareas) > 0:
             num = len(textareas) or len(ts_in)
             if num == 1:
-                # 서술형 칸이 하나인 경우 (Q120_1 Q120_2 Q120_3)
                 final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={q_reordered}_1 {q_reordered}_2 {q_reordered}_3.")
             else:
-                # 서술형 칸이 여러 개인 경우 (Q120_1_1 Q120_1_2 Q120_1_3...)
                 for f_idx in range(1, num + 1):
                     final_syntax_omc.append(f"*{q_reordered}({orig_name}) - {f_idx}번.\n!OMC2 {base_str}V={q_reordered}_{f_idx}_1 {q_reordered}_{f_idx}_2 {q_reordered}_{f_idx}_3.")
             continue
