@@ -67,16 +67,24 @@ def get_logic_area_text(node, stop_node):
 def process_html_content(content):
     soup = BeautifulSoup(content, 'html.parser')
     q_map, page_logic = {}, {}
+    privacy_ids = set()
+    
     sidebar = soup.find('ul', id='syncTreeview')
     if sidebar:
         for li in sidebar.find_all('li'):
             link = li.find('a', href=True)
             if not link: continue
             tid = link.get('href').split('#')[-1]
+            
+            li_text_compact = re.sub(r'\s+', '', li.get_text())
+            if "개인정보" in li_text_compact:
+                privacy_ids.add(tid)
+                
             q_span = li.find('span', class_='questionNumberInformation2') or li.find('span', class_='questionNumberInformation')
             if q_span:
                 m = re.search(r'Q(\d+)', q_span.get_text())
                 if m: q_map[tid] = f"Q{m.group(1)}"
+                
     for layer in soup.find_all('fieldset', class_='logicLayer'):
         for item in layer.find_all(['dd', 'div', 'p', 'dt']):
             match = re.search(r'Logic:\s*(.*?)\s*=>\s*Page:\s*(\d+)', item.get_text(), flags=re.I)
@@ -91,13 +99,19 @@ def process_html_content(content):
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
         
         # -------------------------------------------------------------
-        # [예외 처리 초강력 보완] 태그 속성과 소스코드 전체에서 '개인정보' 감지 시 통째로 제외
-        if "개인정보" in re.sub(r'\s+', '', str(q_div)):
+        # [이미지 기반 예외 처리 최종 보완] 
+        # 1. 사이드바/텍스트에 '개인정보'가 포함되어 있거나
+        # 2. 이미지에 나온 것처럼 특수 문항 태그 속성/유형이 감지되면 통째로 건너뜀
+        q_type_attr = str(q_div.get('questtype', '')).strip()
+        
+        if (orig_id in privacy_ids or 
+            "개인정보" in re.sub(r'\s+', '', str(q_div)) or 
+            q_type_attr in ["999", "99", "711", "privacy"]): # 이미지 속 유형 대응 필터
             continue
         # -------------------------------------------------------------
 
         q_reordered = q_map[orig_id]
-        q_type = str(q_div.get('questtype', '')).strip()
+        q_type = q_type_attr  # 기존의 questtype 값 유지
         q_text_div = q_div.find('div', class_='survey_Q')
         q_text = q_text_div.get_text(strip=True) if q_text_div else ""
         name_match = re.search(r'^([A-Z0-9\-]+)', q_text)
@@ -145,7 +159,6 @@ def process_html_content(content):
             final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={v_list}.")
             continue
 
-        # --- [서술형(311, 221) 문항 개수별 변수명 로직 수정] ---
         if q_type in ["311", "221"] or len(textareas) > 0:
             num = len(textareas) or len(ts_in)
             if num == 1:
