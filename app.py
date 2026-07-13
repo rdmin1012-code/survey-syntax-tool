@@ -42,13 +42,19 @@ def replace_vars_in_logic(logic_raw, q_map):
     def subst_func(match):
         oid, suffix, op, val = match.groups()
         rid = q_map.get(oid, oid)
-        if suffix and "MA" in suffix.upper() and val:
-            return f"{rid}_{val}{op}{val}"
-        elif suffix and "RK" in suffix.upper():
-            rk_num = re.search(r'\d+', suffix)
-            return f"{rid}_{rk_num.group() if rk_num else '1'}{op}{val}"
+        if suffix:
+            s_up = suffix.upper()
+            if "MA" in s_up and val:
+                return f"{rid}_{val}{op}{val}"
+            elif "RK" in s_up and re.search(r'\d+', s_up):
+                rk_num = re.search(r'\d+', s_up)
+                return f"{rid}_{rk_num.group()}{op}{val}"
         return f"{rid}{op}{val}"
-    pattern = rf"({'|'.join(sorted_oids)})(SA|MA|TN|RK\d+)?(\s*[=<>!]+\s*)(\d+)?"
+    
+    # SA, TL, TS, TN, 숫자가 없는 RK 형식을 정확히 캡처하여 제외하기 위한 패턴 확장
+    targets = '|'.join(sorted_oids)
+    id_pattern = f"({targets}|Q\d+)" if targets else "(Q\d+)"
+    pattern = id_pattern + r"(SA|MA|TN|TL|TS|RK\d*)?(\s*[=<>!]+\s*)(\d+)?"
     return re.sub(pattern, subst_func, logic_raw, flags=re.I)
 
 def get_logic_area_text(node, stop_node):
