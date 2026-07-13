@@ -171,4 +171,45 @@ def process_html_content(content):
             continue
 
         # --- [서술형(311, 221) 문항 개수별 변수명 로직 수정] ---
-        if q_type in
+        if q_type in ["311", "221"] or len(textareas) > 0:
+            num = len(textareas) or len(ts_in)
+            if num == 1:
+                final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={q_reordered}_1 {q_reordered}_2 {q_reordered}_3.")
+            else:
+                for f_idx in range(1, num + 1):
+                    final_syntax_omc.append(f"*{q_reordered}({orig_name}) - {f_idx}번.\n!OMC2 {base_str}V={q_reordered}_{f_idx}_1 {q_reordered}_{f_idx}_2 {q_reordered}_{f_idx}_3.")
+            continue
+
+        if q_type == "121" and ts_in:
+            ma_val = ""
+            for ts in ts_in:
+                parent = ts.find_parent('label'); linked = parent.find('input', casetype=re.compile(r'MA', re.I)) if parent else None
+                if linked: ma_val = linked.get('value', '')
+            if ma_val:
+                v_ma = " ".join([f"{q_reordered}_{m.get('value')}" for m in q_div.find_all('input', casetype=re.compile(r'MA', re.I))])
+                final_syntax_cmc.append(f"*{q_reordered}({orig_name}).\n!CMC2 ETC={q_reordered}_{ma_val} V={v_ma}.")
+
+    res = "*=== [OMC2 SYNTAX] ===.\n\n" + "\n\n".join(final_syntax_omc)
+    if final_syntax_cmc: res += "\n\n\n*=== [CMC2 SYNTAX] ===.\n\n" + "\n\n".join(final_syntax_cmc)
+    return res
+
+# --- [3. 메인 실행부] ---
+if check_password():
+    st.title("📝 OMC2 CMC2 신텍스 생성")
+    uploaded_file = st.file_uploader("HTML 파일을 선택하세요", type=['html', 'htm'])
+    if uploaded_file is not None:
+        bytes_data = uploaded_file.read()
+        content = None
+        for enc in ['euc-kr', 'cp949', 'utf-8-sig', 'utf-8']:
+            try:
+                content = bytes_data.decode(enc)
+                if "ISAS5" in content: break
+            except: continue
+        if content:
+            with st.spinner('신텍스를 생성 중입니다...'):
+                result_text = process_html_content(content)
+            st.divider()
+            st.subheader("✅ 생성 완료")
+            st.code(result_text, language='text')
+            st.download_button(label="📄 신텍스 파일 다운로드 (.txt)", data=result_text, file_name=f"syntax_{uploaded_file.name.split('.')[0]}.txt", mime="text/plain")
+        else: st.error("올바른 ISAS5 HTML 파일이 아닙니다.")
