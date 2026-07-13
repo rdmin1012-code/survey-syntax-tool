@@ -69,15 +69,14 @@ def process_html_content(content):
     q_map, page_logic = {}, {}
     
     # -------------------------------------------------------------
-    # [신규 규칙] 문항제어 블록에서 개인정보보호 대상 Q번호 타겟팅 추출
-    privacy_q_numbers = set()
-    for dt in soup.find_all('dt'):
-        if "개인정보보호문항" in dt.get_text():
-            parent = dt.find_parent(['div', 'fieldset'])
-            if parent:
-                # 해당 구역 안의 Q16 같은 패턴을 모두 찾아 리스트에 등록
-                for qnum in re.findall(r'Q(\d+)', parent.get_text()):
-                    privacy_q_numbers.add(f"Q{qnum}")
+    # [신규 규칙] 모든 컨테이너 요소를 뒤져서 개인정보 대상 Q번호 추출 (숫자 완벽 정규화)
+    privacy_q_digits = set()
+    for element in soup.find_all(['div', 'fieldset', 'dt', 'dd', 'tr', 'td', 'p']):
+        elem_text_compact = re.sub(r'\s+', '', element.get_text())
+        if "개인정보보호" in elem_text_compact:
+            # 대소문자 구분 없이 Q/q 뒤의 숫자를 모두 추출하여 순수 정수형태 문자열로 저장 (ex: 016 -> 16)
+            for qnum in re.findall(r'[qQ](\d+)', element.get_text()):
+                privacy_q_digits.add(str(int(qnum)))
     # -------------------------------------------------------------
     
     sidebar = soup.find('ul', id='syncTreeview')
@@ -107,8 +106,9 @@ def process_html_content(content):
         q_reordered = q_map[orig_id]
         
         # -------------------------------------------------------------
-        # [선택적 필터 반영] 사전 스캔된 개인정보 대상 문항(예: Q16)만 정밀 패스
-        if q_reordered in privacy_q_numbers:
+        # [정밀 필터 반영] 자릿수 차이(Q16 vs Q016)를 파괴하고 오직 순수 숫자로만 비교하여 패스
+        q_match = re.search(r'\d+', q_reordered)
+        if q_match and str(int(q_match.group())) in privacy_q_digits:
             continue
         # -------------------------------------------------------------
 
@@ -139,6 +139,11 @@ def process_html_content(content):
                 if "비보조상기" in get_logic_area_text(target_q, nn_item):
                     t_rid = q_map.get(target_q.get('id', ''))
                     if t_rid:
+                        # 최초/비보조 상기 연동 루프 내에서도 개인정보 문항은 강제 제외
+                        t_match = re.search(r'\d+', t_rid)
+                        if t_match and str(int(t_match.group())) in privacy_q_digits:
+                            j += 1
+                            continue
                         ts_next = target_q.find_all('input', casetype=re.compile(r'TS', re.I))
                         for k in range(max(1, len(ts_next))): combined_vars.append(f"{t_rid}_{k+1}")
                         processed_q_ids.add(target_q.get('id'))
