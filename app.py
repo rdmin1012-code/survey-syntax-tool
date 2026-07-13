@@ -70,24 +70,20 @@ def process_html_content(content):
     q_map, page_logic = {}, {}
     
     # -------------------------------------------------------------
-    # [현미경 핀포인트 필터] 텍스트 노드를 직격 타겟팅하여 타 문항(TL 등) 오인 차단
+    # [초정밀 형제 노드 추적 필터] 주변 6개 형제 태그만 제한 탐색하여 TL 오인 차단
     privacy_q_digits = set()
-    target_node = None
-    try:
-        target_node = soup.find(string=re.compile("개인정보보호"))
-    except:
-        pass
-    if not target_node:
-        try:
-            target_node = soup.find(text=re.compile("개인정보보호"))
-        except:
-            pass
-            
-    if target_node:
-        # 텍스트를 담은 가장 가까운 최소 단위의 박스(div 또는 fieldset)만 특정
-        control_box = target_node.find_parent(['div', 'fieldset'])
-        if control_box:
-            for qnum in re.findall(r'[qQ](\d+)', control_box.get_text()):
+    for tag in soup.find_all(['dt', 'dd', 'td', 'th', 'p', 'span', 'b', 'legend']):
+        if "개인정보보호" in tag.get_text():
+            next_text = ""
+            curr = tag
+            for _ in range(6):
+                curr = curr.next_sibling if curr else None
+                if curr:
+                    if hasattr(curr, 'get_text'):
+                        next_text += curr.get_text()
+                    else:
+                        next_text += str(curr)
+            for qnum in re.findall(r'[qQ](\d+)', next_text):
                 privacy_q_digits.add(str(int(qnum)))
     # -------------------------------------------------------------
     
@@ -116,7 +112,7 @@ def process_html_content(content):
         q_reordered = q_map[orig_id]
         
         # -------------------------------------------------------------
-        # [정밀 필터 적용] 핀포인트로 추출된 개인정보 문항 번호와 일치할 때만 정확히 스킵
+        # [정밀 필터 적용] 핀포인트 수집된 개인정보 문항만 정확히 패스
         q_match = re.search(r'\d+', q_reordered)
         if q_match and str(int(q_match.group())) in privacy_q_digits:
             continue
