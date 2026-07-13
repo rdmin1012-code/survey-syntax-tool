@@ -91,9 +91,8 @@ def process_html_content(content):
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
         
         # -------------------------------------------------------------
-        # [예외 처리 보완] 띄어쓰기/줄바꿈과 관계없이 관련 키워드가 포함되면 패스
-        q_text_compact = re.sub(r'\s+', '', q_div.get_text())
-        if "개인정보보호문항" in q_text_compact or "개인정보보호설정" in q_text_compact:
+        # [예외 처리 초강력 보완] 태그 속성과 소스코드 전체에서 '개인정보' 감지 시 통째로 제외
+        if "개인정보" in re.sub(r'\s+', '', str(q_div)):
             continue
         # -------------------------------------------------------------
 
