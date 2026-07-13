@@ -91,8 +91,9 @@ def process_html_content(content):
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
         
         # -------------------------------------------------------------
-        # [신규 예외 처리] 문항 내에 해당 지시 텍스트가 포착되면 통째로 생성 패스
-        if "개인정보보호문항 설정 정보" in q_div.get_text():
+        # [예외 처리 보완] 띄어쓰기/줄바꿈과 관계없이 관련 키워드가 포함되면 패스
+        q_text_compact = re.sub(r'\s+', '', q_div.get_text())
+        if "개인정보보호문항" in q_text_compact or "개인정보보호설정" in q_text_compact:
             continue
         # -------------------------------------------------------------
 
