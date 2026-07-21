@@ -39,22 +39,27 @@ def clean_logic_text(logic_str):
 def replace_vars_in_logic(logic_raw, q_map):
     if not logic_raw: return ""
     sorted_oids = sorted(q_map.keys(), key=len, reverse=True)
+    
     def subst_func(match):
         oid, suffix, op, val = match.groups()
         rid = q_map.get(oid, oid)
+        op = op or ""
+        val = val or ""
+        
         if suffix:
             s_up = suffix.upper()
+            num_match = re.search(r'\d+', s_up)
             if "MA" in s_up and val:
                 return f"{rid}_{val}{op}{val}"
-            elif "RK" in s_up and re.search(r'\d+', s_up):
-                rk_num = re.search(r'\d+', s_up)
-                return f"{rid}_{rk_num.group()}{op}{val}"
+            elif num_match:
+                # TN2, TS1, SA1 등 접미사 뒤에 숫자가 있는 경우 TN/TS 등을 제거하고 Q76_2 형태로 변환
+                return f"{rid}_{num_match.group()}{op}{val}"
         return f"{rid}{op}{val}"
     
-    # SA, TL, TS, TN, 숫자가 없는 RK 형식을 정확히 캡처하여 제외하기 위한 패턴 확장
     targets = '|'.join(sorted_oids)
     id_pattern = f"({targets}|Q\d+)" if targets else "(Q\d+)"
-    pattern = id_pattern + r"(SA|MA|TN|TL|TS|RK\d*)?(\s*[=<>!]+\s*)(\d+)?"
+    # SA, MA, TN, TL, TS, RK 뒤에 숫자가 붙은 패턴(\d*)까지 완벽히 인식하도록 확장
+    pattern = id_pattern + r"(SA\d*|MA\d*|TN\d*|TL\d*|TS\d*|RK\d*)?(\s*[=<>!]+\s*)?(\d+)?"
     return re.sub(pattern, subst_func, logic_raw, flags=re.I)
 
 def get_logic_area_text(node, stop_node):
@@ -68,6 +73,25 @@ def get_logic_area_text(node, stop_node):
 def process_html_content(content):
     soup = BeautifulSoup(content, 'html.parser')
     q_map, page_logic = {}, {}
+    
+    # -------------------------------------------------------------
+    # [개인정보보호 문항 추출 로직] <dt> 다음의 <dd> 및 원시 텍스트 스캔
+    privacy_q_digits = set()
+    raw_blocks = re.findall(r'개인정보보호문항.*?(?:</div>|</fieldset>)', content, re.DOTALL | re.IGNORECASE)
+    for block in raw_blocks:
+        dd_contents = re.findall(r'<dd>(.*?)</dd>', block, re.DOTALL | re.IGNORECASE)
+        for dd_text in dd_contents:
+            for qnum in re.findall(r'[qQ](\d+)', dd_text):
+                privacy_q_digits.add(str(int(qnum)))
+
+    for dt in soup.find_all('dt'):
+        if "개인정보보호문항" in re.sub(r'\s+', '', dt.get_text()):
+            target_dd = dt.find_next('dd')
+            if target_dd:
+                for qnum in re.findall(r'[qQ](\d+)', target_dd.get_text()):
+                    privacy_q_digits.add(str(int(qnum)))
+    # -------------------------------------------------------------
+    
     sidebar = soup.find('ul', id='syncTreeview')
     if sidebar:
         for li in sidebar.find_all('li'):
@@ -91,6 +115,12 @@ def process_html_content(content):
         orig_id = q_div.get('id', '')
         if orig_id in processed_q_ids or not q_map.get(orig_id): continue
         q_reordered = q_map[orig_id]
+        
+        # 개인정보 대상 문항 필터링
+        q_match = re.search(r'\d+', q_reordered)
+        if q_match and str(int(q_match.group())) in privacy_q_digits:
+            continue
+        
         q_type = str(q_div.get('questtype', '')).strip()
         q_text_div = q_div.find('div', class_='survey_Q')
         q_text = q_text_div.get_text(strip=True) if q_text_div else ""
@@ -143,10 +173,8 @@ def process_html_content(content):
         if q_type in ["311", "221"] or len(textareas) > 0:
             num = len(textareas) or len(ts_in)
             if num == 1:
-                # 서술형 칸이 하나인 경우 (Q120_1 Q120_2 Q120_3)
                 final_syntax_omc.append(f"*{q_reordered}({orig_name}).\n!OMC2 {base_str}V={q_reordered}_1 {q_reordered}_2 {q_reordered}_3.")
             else:
-                # 서술형 칸이 여러 개인 경우 (Q120_1_1 Q120_1_2 Q120_1_3...)
                 for f_idx in range(1, num + 1):
                     final_syntax_omc.append(f"*{q_reordered}({orig_name}) - {f_idx}번.\n!OMC2 {base_str}V={q_reordered}_{f_idx}_1 {q_reordered}_{f_idx}_2 {q_reordered}_{f_idx}_3.")
             continue
