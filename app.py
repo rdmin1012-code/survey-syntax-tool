@@ -54,12 +54,12 @@ def replace_vars_in_logic(logic_raw, q_map):
             elif num_match:
                 # TN2, TS1, SA1 등 접미사 뒤에 숫자가 있는 경우 TN/TS 등을 제거하고 Q76_2 형태로 변환
                 return f"{rid}_{num_match.group()}{op}{val}"
+            # SA 등 숫자가 없는 순수 단일선택 접미사는 접미사 자체를 완전히 제거
         return f"{rid}{op}{val}"
     
     targets = '|'.join(sorted_oids)
     id_pattern = f"({targets}|Q\d+)" if targets else "(Q\d+)"
-    # SA, MA, TN, TL, TS, RK 뒤에 숫자가 붙은 패턴(\d*)까지 완벽히 인식하도록 확장
-    pattern = id_pattern + r"(SA\d*|MA\d*|TN\d*|TL\d*|TS\d*|RK\d*)?(\s*[=<>!]+\s*)?(\d+)?"
+    pattern = r'\b' + id_pattern + r"(SA\d*|MA\d*|TN\d*|TL\d*|TS\d*|RK\d*)?(\s*[=<>!]+\s*)?(\d+)?\b"
     return re.sub(pattern, subst_func, logic_raw, flags=re.I)
 
 def get_logic_area_text(node, stop_node):
@@ -92,6 +92,7 @@ def process_html_content(content):
                     privacy_q_digits.add(str(int(qnum)))
     # -------------------------------------------------------------
     
+    # 1. 사이드바 메뉴 기반 q_map 구축
     sidebar = soup.find('ul', id='syncTreeview')
     if sidebar:
         for li in sidebar.find_all('li'):
@@ -102,6 +103,16 @@ def process_html_content(content):
             if q_span:
                 m = re.search(r'Q(\d+)', q_span.get_text())
                 if m: q_map[tid] = f"Q{m.group(1)}"
+
+    # 2. [보완] 보기 내부 Q ID와 재정렬 Q 번호 간 이중 매핑 추가 (Q126 -> Q42 등)
+    for span1 in soup.find_all('span', class_='variableinformation'):
+        span2 = span1.find_next_sibling('span', class_='variableinformation2')
+        if span2:
+            m1 = re.search(r'Q(\d+)', span1.get_text())
+            m2 = re.search(r'Q(\d+)', span2.get_text())
+            if m1 and m2:
+                q_map[f"Q{m1.group(1)}"] = f"Q{m2.group(1)}"
+
     for layer in soup.find_all('fieldset', class_='logicLayer'):
         for item in layer.find_all(['dd', 'div', 'p', 'dt']):
             match = re.search(r'Logic:\s*(.*?)\s*=>\s*Page:\s*(\d+)', item.get_text(), flags=re.I)
