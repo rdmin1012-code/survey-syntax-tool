@@ -13,7 +13,7 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
     if not st.session_state["password_correct"]:
-        st.title("🔒 OMC2 CMC2 신텍스 생성기")
+        st.title("🔒 OMC2 CMC2 신텍스 생성")
         user_password = st.text_input("비밀번호를 입력해 주세요.", type="password")
         if st.button("접속하기"):
             if user_password == PASSWORD:
